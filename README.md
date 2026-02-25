@@ -57,7 +57,7 @@ python --version
 NSSM allows you to run the Python script as a Windows service that starts on boot and auto-restarts on failure.
 
 1. Download from [nssm.cc](https://nssm.cc/download)
-2. Extract and place `nssm.exe` somewhere on your PATH (e.g., `C:\Tools\nssm.exe`)
+2. Extract and place `nssm.exe` somewhere on your PATH (e.g., `C:\Windows\System32\nssm.exe`)
 3. Verify:
    ```powershell
    nssm version
@@ -171,8 +171,8 @@ If you want the machine to sleep/wake on a schedule (e.g., sleep at 8 PM, wake a
 ### Step 1: Clone the repository
 
 ```powershell
-git clone https://github.com/YOUR_USERNAME/zello-watchdog.git
-cd zello-watchdog
+git clone https://github.com/marcoagbarreto/ZelloWatchdog.git
+cd ZelloWatchdog
 ```
 
 ### Step 2: Determine your architecture
@@ -241,8 +241,8 @@ chat_id = YOUR_CHAT_ID_HERE
 
 You can also set Telegram credentials as environment variables instead:
 ```powershell
-[System.Environment]::SetEnvironmentVariable("TELEGRAM_BOT_TOKEN", "YOUR_TOKEN", "Machine")
-[System.Environment]::SetEnvironmentVariable("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID", "Machine")
+setx TELEGRAM_BOT_TOKEN "YOUR_TOKEN" /M
+setx TELEGRAM_CHAT_ID "YOUR_CHAT_ID" /M
 ```
 
 See `config.ini` for all available options with detailed comments.
@@ -279,6 +279,8 @@ nssm install ZelloWatchdog "C:\Python312\python.exe" "C:\path\to\zello_watchdog.
 Configure the service for auto-restart:
 
 ```powershell
+nssm set ZelloWatchdog AppStdout C:\path\to\zello_watchdog\stdout.log
+nssm set ZelloWatchdog AppStderr C:\path\to\zello_watchdog\stderr.log
 nssm set ZelloWatchdog AppRestartDelay 5000
 nssm set ZelloWatchdog AppStopMethodSkip 6
 nssm set ZelloWatchdog AppExit Default Restart
@@ -495,4 +497,8 @@ schtasks /delete /tn "[Radio] Power Management - Scheduled Wake" /f
 
 ## License
 
-This project is provided as-is for internal/operational use. See LICENSE file for details.
+This project is licensed under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+You are free to share and adapt this project for **non-commercial purposes**, as long as you give appropriate credit and distribute any derivatives under the same license.
+
+See the [LICENSE](LICENSE) file for details.
