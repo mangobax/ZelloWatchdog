@@ -842,7 +842,7 @@ class ZelloWatchdog:
     def _send_heartbeat(self) -> None:
         t = self._get_system_telemetry()
         self.send_telegram(
-            f"\U0001fac0 [{self.cfg['site']}] ZelloWatchdog activo\n"
+            f"\U0001fac0 [{self.cfg['site']}] ZelloWatchdog active\n"
             f"  {self._format_telemetry(t)}"
         )
         self.log.info("[%s] Heartbeat sent", self.cfg["site"])
