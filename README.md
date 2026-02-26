@@ -24,6 +24,7 @@ Designed for headless/unattended Windows stations running Zello as critical infr
 | **Persistent state** | Reboot timestamps and flags survive restarts via a JSON state file |
 | **Self-watchdog** | Background thread detects if the main loop freezes and force-restarts the service |
 | **Auto-detect Zello path** | Finds `Zello.exe` via Windows registry, common paths, or `PATH` |
+| **Auto-update** | Scheduled task runs `updater.py` daily to pull the latest release from GitHub, back up the current install, and update in-place |
 
 ---
 
@@ -202,12 +203,13 @@ pip install pywin32
 
 ### Step 4: Import Windows Scheduled Tasks
 
-The `tasks/` folder contains three XML files for Windows Task Scheduler. Import them from an **elevated** (Administrator) PowerShell:
+The `tasks/` folder contains XML files for Windows Task Scheduler. Import them from an **elevated** (Administrator) PowerShell:
 
 ```powershell
 schtasks /create /xml "tasks\[Radio] Application - LaunchZelloGUI.xml" /tn "[Radio] Application - LaunchZelloGUI"
 schtasks /create /xml "tasks\[Radio] Power Management - Scheduled Sleep.xml" /tn "[Radio] Power Management - Scheduled Sleep"
 schtasks /create /xml "tasks\[Radio] Power Management - Scheduled Wake.xml" /tn "[Radio] Power Management - Scheduled Wake"
+schtasks /create /xml "tasks\[Radio] Application - AutoUpdate.xml" /tn "[Radio] Application - AutoUpdate"
 ```
 
 **What each task does:**
@@ -217,11 +219,13 @@ schtasks /create /xml "tasks\[Radio] Power Management - Scheduled Wake.xml" /tn 
 | `[Radio] Application - LaunchZelloGUI` | Launches `Zello.exe` in the user's interactive session. The watchdog triggers this task via `schtasks /run` when relaunching Zello. This is required because a service (Session 0) cannot launch GUI apps directly in the user desktop. |
 | `[Radio] Power Management - Scheduled Wake` | Wakes the PC from sleep daily at **7:00 AM** (adjustable). Uses `WakeToRun = true` so the BIOS/OS wakes the machine. |
 | `[Radio] Power Management - Scheduled Sleep` | Hibernates the PC daily at **8:00 PM** (adjustable) using `shutdown /h`. |
+| `[Radio] Application - AutoUpdate` | Runs `updater.py` daily at **7:00 PM** to check GitHub for new releases and auto-update the watchdog. Requires network connectivity. |
 
 > **Important:** After importing, open **Task Scheduler** (`taskschd.msc`) and update each task:
 > - Right-click the task → **Properties** → **General** tab → click **"Change User or Group..."** and set it to **your local user account**
+> - For the auto-update task, go to the **Actions** tab and update the path to `updater.py` and the working directory to match your install location
 > - For the sleep/wake tasks, go to the **Triggers** tab and adjust the times to your schedule
-> - The sleep and wake tasks are optional — only import them if you want automated power management
+> - The sleep/wake and auto-update tasks are optional — only import them if you want those features
 
 ### Step 5: Configure the watchdog
 
@@ -376,6 +380,47 @@ Use this with monitoring tools like [Uptime Kuma](https://github.com/louislam/up
 python zello_watchdog.py -c "D:\configs\my_config.ini"
 ```
 
+### Auto-Update
+
+The watchdog includes a self-updater (`updater.py`) that checks GitHub for new releases and updates the installation automatically.
+
+**How it works:**
+
+1. Compares the version in `version.txt` against the latest GitHub release tag
+2. If a newer version is available, it:
+   - Stops the `ZelloWatchdog` Windows service (via NSSM)
+   - Downloads the release ZIP from GitHub
+   - Backs up the current installation to `_backup/<timestamp>/`
+   - Extracts and installs the new files
+   - Restores your `config.ini` (so your settings are preserved)
+   - Writes the new version to `version.txt`
+   - Restarts the service
+3. If the update fails, it attempts to restart the service with the existing files
+
+**Enabling/disabling auto-update:**
+
+- Auto-update is **enabled** when the file `auto_update.enabled` exists in the install directory (it ships with the project by default)
+- To **disable** auto-updates, simply delete the `auto_update.enabled` file:
+  ```powershell
+  Remove-Item "C:\ZelloWatchdog\auto_update.enabled"
+  ```
+- To **re-enable**, recreate it:
+  ```powershell
+  New-Item "C:\ZelloWatchdog\auto_update.enabled"
+  ```
+
+**Running manually:**
+
+```powershell
+python updater.py
+```
+
+**Scheduled execution:**
+
+The `[Radio] Application - AutoUpdate` scheduled task runs `updater.py` daily at **7:00 PM**. It requires network connectivity and retries up to 3 times on failure. See [Step 4](#step-4-import-windows-scheduled-tasks) for import instructions.
+
+> **Note for private repos:** Set the `GITHUB_TOKEN` environment variable to a personal access token if your repository is private.
+
 ---
 
 ## How It Works
@@ -418,10 +463,14 @@ python zello_watchdog.py -c "D:\configs\my_config.ini"
 ```
 zello-watchdog/
 ├── zello_watchdog.py          # Main watchdog script
+├── updater.py                 # Auto-update script (checks GitHub for new releases)
 ├── config.ini                 # Configuration file
+├── version.txt                # Current installed version (used by updater)
+├── auto_update.enabled        # Flag file — delete to disable auto-updates
 ├── requirements_x64.txt       # Python dependencies (64-bit)
 ├── requirements_x86.txt       # Python dependencies (32-bit)
 ├── tasks/
+│   ├── [Radio] Application - AutoUpdate.xml
 │   ├── [Radio] Application - LaunchZelloGUI.xml
 │   ├── [Radio] Power Management - Scheduled Sleep.xml
 │   └── [Radio] Power Management - Scheduled Wake.xml
@@ -434,6 +483,8 @@ zello-watchdog/
 |---|---|
 | `zello_watchdog.log` | Rotating log file (5 MB × 3 backups) |
 | `watchdog_state.json` | Persistent state (reboot timestamps, flags) |
+| `_backup/` | Backup of previous installation (created by updater before each update) |
+| `_update_staging/` | Temporary staging directory (cleaned up after successful update) |
 
 ---
 
@@ -491,6 +542,7 @@ nssm remove ZelloWatchdog confirm
 schtasks /delete /tn "[Radio] Application - LaunchZelloGUI" /f
 schtasks /delete /tn "[Radio] Power Management - Scheduled Sleep" /f
 schtasks /delete /tn "[Radio] Power Management - Scheduled Wake" /f
+schtasks /delete /tn "[Radio] Application - AutoUpdate" /f
 ```
 
 ---
