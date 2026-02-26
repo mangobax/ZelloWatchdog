@@ -95,10 +95,23 @@ def backup_current_install():
     backup_path = BACKUP_DIR / timestamp
     backup_path.mkdir(parents=True, exist_ok=True)
 
+    # Preserve auto_update.enabled safely
+    auto_update_flag = INSTALL_DIR / "auto_update.enabled"
+    flag_preserved = False
+    if auto_update_flag.exists():
+        flag_preserved = True  # remember to restore later
+
     for item in INSTALL_DIR.iterdir():
-        if item.name in ("_update_staging", "_backup", "auto_update.enabled"):
+        if item.name in ("_update_staging", "_backup"):
             continue
         shutil.move(str(item), backup_path)
+
+    # Restore auto_update flag in backup if it existed
+    if flag_preserved:
+        backup_flag = backup_path / "auto_update.enabled"
+        if not backup_flag.exists():
+            backup_flag.touch()
+        log("[Updater] auto_update.enabled preserved in backup")
 
     return backup_path
 
