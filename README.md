@@ -497,8 +497,8 @@ All settings are in `config.ini`. See the inline comments in the file for detail
 | `[watchdog]` | Check interval, timeouts, relaunch attempts, backoff, heartbeat frequency |
 | `[zello]` | WAL file glob, process name, scheduled task name, exe path |
 | `[telegram]` | Bot credentials, rate limiting, command polling interval |
-| `[reboot_protection]` | Max reboots per time window |
-| `[daily_report]` | Enable/disable, time of day to send |
+| `[reboot_protection]` | Max reboots per time window, reminder interval while reboots are blocked |
+| `[daily_report]` | Enable/disable (disabled by default), time of day to send |
 | `[http]` | Health endpoint host, port, enable/disable |
 | `[event_log]` | Windows Event Log integration on/off |
 

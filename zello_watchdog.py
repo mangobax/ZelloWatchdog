@@ -185,9 +185,11 @@ def load_config(config_path: Path | None = None) -> dict:
                                             fallback=3),
         "reboot_window_seconds":  cp.getint("reboot_protection", "reboot_window_seconds",
                                             fallback=3600),
+        "blocked_reminder_seconds": cp.getint("reboot_protection", "blocked_reminder_minutes",
+                                              fallback=30) * 60,
 
         # [daily_report]
-        "daily_report_enabled": cp.getboolean("daily_report", "enabled", fallback=True),
+        "daily_report_enabled": cp.getboolean("daily_report", "enabled", fallback=False),
         "daily_report_hour":    cp.getint("daily_report", "hour", fallback=8),
         "daily_report_minute":  cp.getint("daily_report", "minute", fallback=0),
 
@@ -360,6 +362,7 @@ class ZelloWatchdog:
         self._last_heartbeat_time: float = 0
         self._paused: bool = False
         self._last_daily_report_date: str | None = None
+        self._last_blocked_reminder: float | None = None
         self._start_time: float = time.time()
 
         # Last known health (for HTTP endpoint / commands)
@@ -999,6 +1002,7 @@ class ZelloWatchdog:
                         self._write_event_log(f"ZelloWatchdog [{site}]: Zello recovered", event_type=2)
                     self._first_error_time = None
                     self._relaunch_attempts = 0
+                    self._last_blocked_reminder = None
 
                     if time.time() - self._last_heartbeat_time >= self.cfg["heartbeat_interval"]:
                         self._send_heartbeat()
@@ -1053,24 +1057,32 @@ class ZelloWatchdog:
                             )
                             self._restart_windows()
                         else:
-                            # Reboot blocked — alert once
-                            if not self._state.get("reboot_blocked_notified"):
+                            # Reboot blocked — alert, then remind every N minutes
+                            now = time.time()
+                            if (
+                                self._last_blocked_reminder is None
+                                or now - self._last_blocked_reminder
+                                >= self.cfg["blocked_reminder_seconds"]
+                            ):
+                                first = self._last_blocked_reminder is None
                                 self.send_telegram(
-                                    f"\U0001f6ab [{site}] Reboot BLOCKED — "
+                                    f"🚫 [{site}] "
+                                    f"{'Reboot BLOCKED' if first else 'REMINDER'} — Zello still down, "
                                     f"max {self.cfg['max_reboots_per_window']} reboots in "
-                                    f"{self.cfg['reboot_window_seconds']} s already reached. "
-                                    f"Manual intervention required.",
+                                    f"{self.cfg['reboot_window_seconds']} s reached. "
+                                    f"Manual intervention needed. PC is still on and reachable via RDP.",
                                     force=True,
                                 )
                                 self.log.critical(
-                                    "[%s] Reboot loop protection triggered — manual intervention needed",
+                                    "[%s] Reboot loop protection active — manual intervention needed",
                                     site,
                                 )
-                                self._write_event_log(
-                                    f"ZelloWatchdog [{site}]: reboot loop protection activated",
-                                    event_type=0,
-                                )
-                                self._state.set("reboot_blocked_notified", True)
+                                if first:
+                                    self._write_event_log(
+                                        f"ZelloWatchdog [{site}]: reboot loop protection activated",
+                                        event_type=0,
+                                    )
+                                self._last_blocked_reminder = now
 
                 time.sleep(self.cfg["check_interval"])
 
