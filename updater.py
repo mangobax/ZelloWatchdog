@@ -18,6 +18,7 @@ VERSION_FILE = INSTALL_DIR / "version.txt"
 AUTO_UPDATE_FLAG = INSTALL_DIR / "auto_update.enabled"
 STAGING_DIR = INSTALL_DIR / "_update_staging"
 BACKUP_DIR = INSTALL_DIR / "_backup"
+LOG_FILE = INSTALL_DIR / "updater.log"
 
 # Optional: for private repo
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # set in system env if needed
@@ -30,7 +31,14 @@ GITHUB_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 # ==========================
 
 def log(msg):
-    print(f"[Updater] {msg}")
+    line = f"[Updater] {datetime.now():%Y-%m-%d %H:%M:%S} {msg}"
+    print(line)
+    # pythonw (scheduled task) has no console, so also keep a log file
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
 
 
 def get_current_version():
@@ -54,14 +62,40 @@ def get_latest_release():
     }
 
 
+def find_nssm():
+    """Locate nssm.exe. A 32-bit Python sees System32 redirected to SysWOW64,
+    where nssm is not installed, so also try the Sysnative alias."""
+    found = shutil.which("nssm")
+    if found:
+        return found
+    windir = Path(os.environ.get("SystemRoot", "C:/Windows"))
+    for sub in ("System32", "Sysnative"):
+        candidate = windir / sub / "nssm.exe"
+        if candidate.exists():
+            return str(candidate)
+    raise FileNotFoundError("nssm.exe not found (PATH, System32, Sysnative)")
+
+
+def run_nssm(action):
+    # Explicit DEVNULL: under pythonw the inherited std handles are invalid
+    result = subprocess.run(
+        [find_nssm(), action, SERVICE_NAME],
+        check=False, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    # nssm prints UTF-16, so drop NUL bytes instead of decoding by guess
+    output = result.stdout.replace(b"\x00", b"").decode("utf-8", errors="replace").strip()
+    log(f"nssm {action}: rc={result.returncode} {output}")
+
+
 def stop_service():
     log("Stopping service...")
-    subprocess.run(["nssm", "stop", SERVICE_NAME], check=False)
+    run_nssm("stop")
 
 
 def start_service():
     log("Starting service...")
-    subprocess.run(["nssm", "start", SERVICE_NAME], check=False)
+    run_nssm("start")
 
 
 def download_release(zip_url):

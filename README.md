@@ -227,6 +227,16 @@ schtasks /create /xml "tasks\[Radio] Application - AutoUpdate.xml" /tn "[Radio] 
 > - For the sleep/wake tasks, go to the **Triggers** tab and adjust the times to your schedule
 > - The sleep/wake and auto-update tasks are optional — only import them if you want those features
 
+> **Auto-update path check:** the imported XML points at `C:\ZelloWatchdog`. If your install lives elsewhere, the task fails silently with result `0x8007010B` (invalid directory) and the watchdog never updates. Repoint it from an elevated PowerShell (set `$d` to your install folder), then run it once and confirm `LastTaskResult` is `0`:
+> ```powershell
+> $d = "C:\path\to\zello_watchdog"
+> $t = Get-ScheduledTask -TaskName "[Radio] Application - AutoUpdate"
+> $a = $t.Actions[0]; $a.Arguments = "`"$d\updater.py`""; $a.WorkingDirectory = $d
+> Set-ScheduledTask -TaskName $t.TaskName -Action $a
+> Start-ScheduledTask -TaskName $t.TaskName; Start-Sleep 20
+> (Get-ScheduledTaskInfo -TaskName $t.TaskName).LastTaskResult
+> ```
+
 ### Step 5: Configure the watchdog
 
 Edit `config.ini`:
