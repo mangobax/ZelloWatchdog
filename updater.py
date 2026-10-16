@@ -4,6 +4,7 @@ import shutil
 import zipfile
 import requests
 import subprocess
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -19,6 +20,7 @@ AUTO_UPDATE_FLAG = INSTALL_DIR / "auto_update.enabled"
 STAGING_DIR = INSTALL_DIR / "_update_staging"
 BACKUP_DIR = INSTALL_DIR / "_backup"
 LOG_FILE = INSTALL_DIR / "updater.log"
+DOWNLOAD_RETRIES = 3
 
 # Optional: for private repo
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # set in system env if needed
@@ -108,12 +110,36 @@ def download_release(zip_url):
     if GITHUB_TOKEN:
         headers["Authorization"] = f"token {GITHUB_TOKEN}"
 
-    r = requests.get(zip_url, headers=headers, timeout=60)
-    r.raise_for_status()
+    last_error = None
+    for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        try:
+            r = requests.get(zip_url, headers=headers, timeout=60)
+            r.raise_for_status()
+            with open(zip_path, "wb") as f:
+                f.write(r.content)
+            return zip_path
+        except requests.RequestException as e:
+            last_error = e
+            log(f"Download attempt {attempt}/{DOWNLOAD_RETRIES} failed: {e}")
+            if attempt < DOWNLOAD_RETRIES:
+                time.sleep(5 * attempt)
 
-    with open(zip_path, "wb") as f:
-        f.write(r.content)
-
+    # Fallback: Windows PowerShell uses the OS TLS stack, which can work when
+    # Python's bundled OpenSSL gets SSLEOFError on a flaky link.
+    log("Falling back to PowerShell download...")
+    ps_cmd = (
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+        "$ProgressPreference = 'SilentlyContinue'; "
+        f"Invoke-WebRequest -UseBasicParsing -Uri '{zip_url}' -OutFile '{zip_path}'"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        timeout=180, check=False,
+    )
+    if result.returncode != 0 or not zip_path.exists() or zip_path.stat().st_size == 0:
+        output = result.stdout.replace(b"\x00", b"").decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"Download failed (requests: {last_error}; powershell: {output[:300]})")
     return zip_path
 
 
@@ -200,10 +226,11 @@ def main():
 
         log(f"Updating {current} → {latest['tag']}")
 
-        stop_service()
-
+        # Download first so a network failure never leaves the service stopped
         zip_path = download_release(latest["zip_url"])
         extract_release(zip_path)
+
+        stop_service()
 
         backup_path = backup_current_install()
         install_new_version()
