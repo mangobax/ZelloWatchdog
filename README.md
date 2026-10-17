@@ -221,6 +221,8 @@ schtasks /create /xml "tasks\[Radio] Application - AutoUpdate.xml" /tn "[Radio] 
 | `[Radio] Power Management - Scheduled Sleep` | Hibernates the PC daily at **8:00 PM** (adjustable) using `shutdown /h`. |
 | `[Radio] Application - AutoUpdate` | Runs `updater.py` daily at **7:00 PM** to check GitHub for new releases and auto-update the watchdog. Requires network connectivity. |
 
+> **Note:** the XML files ship with a placeholder user SID and run only while that user is logged on (`InteractiveToken`, no stored password), so they work with auto-login. Set the real account as described below.
+>
 > **Important:** After importing, open **Task Scheduler** (`taskschd.msc`) and update each task:
 > - Right-click the task → **Properties** → **General** tab → click **"Change User or Group..."** and set it to **your local user account**
 > - For the auto-update task, go to the **Actions** tab and update the path to `updater.py` and the working directory to match your install location
