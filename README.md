@@ -14,17 +14,18 @@ Designed for headless/unattended Windows stations running Zello as critical infr
 | **Auto-relaunch** | Kills and relaunches Zello via Windows Task Scheduler with verification |
 | **Exponential backoff** | Relaunch delays increase (15 s → 30 s → 60 s) to avoid hammering a broken system |
 | **System reboot** | If Zello stays down past a timeout, the machine is rebooted automatically |
-| **Reboot loop protection** | Limits reboots to N per time window (persisted to disk) to prevent infinite reboot cycles |
+| **Reboot loop protection** | Limits reboots to N per time window (persisted to disk) to prevent infinite reboot cycles. While reboots are blocked and Zello is still down, a Telegram reminder is repeated every `blocked_reminder_minutes` (default 30) saying manual intervention is needed and the PC is still on and reachable |
 | **Telegram notifications** | Real-time alerts for errors, recoveries, relaunches, reboots, and heartbeats |
 | **Telegram command interface** | `/status`, `/restart`, `/pause`, `/resume`, `/report`, `/help` |
-| **Daily summary report** | Automated uptime %, relaunch count, and system telemetry report via Telegram |
+| **Daily summary report** | Optional uptime %, relaunch count, and system telemetry report via Telegram. **Disabled by default** (`[daily_report] enabled = false`); `/report` still sends one on demand |
 | **System telemetry** | CPU, RAM, and disk usage included in heartbeats and reports |
 | **HTTP health endpoint** | `GET /health` returns JSON — plug into Uptime Kuma, Nagios, etc. |
 | **Windows Event Log** | Warnings and errors written to Event Viewer (optional, requires `pywin32`) |
 | **Persistent state** | Reboot timestamps and flags survive restarts via a JSON state file |
 | **Self-watchdog** | Background thread detects if the main loop freezes and force-restarts the service |
 | **Auto-detect Zello path** | Finds `Zello.exe` via Windows registry, common paths, or `PATH` |
-| **Auto-update** | Scheduled task runs `updater.py` daily to pull the latest release from GitHub, back up the current install, and update in-place |
+| **Auto-update** | Scheduled task runs `updater.py` daily to pull the latest release from GitHub, back up the current install, and update in-place. Downloads with retries and a PowerShell fallback, logs to `updater.log`, and works from 32-bit Python on 64-bit Windows |
+| **Automated deployment** | The companion [ZelloWatchdog-Deployer](https://github.com/mangobax/ZelloWatchdog-Deployer) builds a USB that provisions a whole station (Zello, Python, NSSM, OpenSSH, Tailscale, tasks, service, auto-login) |
 
 ---
 
@@ -85,7 +86,7 @@ Before installing the watchdog, prepare the Windows machine for unattended/headl
 
 ### Set a Local Account Password
 
-The local user account **must** have a password set. Scheduled tasks and Remote Desktop require it.
+The local user account **must** have a password set. Remote Desktop and automatic login require it. (The scheduled tasks no longer store it: they run with `InteractiveToken`.) The account should be a local administrator, because the auto-update task stops and starts the service.
 
 1. Press `Win + I` → **Accounts** → **Sign-in options** → **Password** → **Add**
 2. Or via command prompt (elevated):
@@ -400,25 +401,25 @@ The watchdog includes a self-updater (`updater.py`) that checks GitHub for new r
 
 1. Compares the version in `version.txt` against the latest GitHub release tag
 2. If a newer version is available, it:
-   - Stops the `ZelloWatchdog` Windows service (via NSSM)
-   - Downloads the release ZIP from GitHub
+   - Downloads the release ZIP from GitHub (3 attempts with growing waits, then a PowerShell `Invoke-WebRequest` fallback) and extracts it. **The service keeps running until the download succeeds**, so a network failure never leaves it stopped
+   - Stops the `ZelloWatchdog` Windows service (via NSSM, found in `PATH`, `System32` or `Sysnative`, so 32-bit Python on 64-bit Windows works)
    - Backs up the current installation to `_backup/<timestamp>/`
-   - Extracts and installs the new files
-   - Restores your `config.ini` (so your settings are preserved)
+   - Installs the new files from the release (**including its `config.ini`**: the one in the release replaces yours, so keep secrets such as the Telegram token and chat ID in environment variables, not in `config.ini`)
    - Writes the new version to `version.txt`
    - Restarts the service
 3. If the update fails, it attempts to restart the service with the existing files
+4. Every step is logged to `updater.log` in the install folder (the scheduled task has no console, so this is the only trace)
 
 **Enabling/disabling auto-update:**
 
 - Auto-update is **enabled** when the file `auto_update.enabled` exists in the install directory (it ships with the project by default)
 - To **disable** auto-updates, simply delete the `auto_update.enabled` file:
   ```powershell
-  Remove-Item "C:\ZelloWatchdog\auto_update.enabled"
+  Remove-Item "<install folder>\auto_update.enabled"
   ```
 - To **re-enable**, recreate it:
   ```powershell
-  New-Item "C:\ZelloWatchdog\auto_update.enabled"
+  New-Item "<install folder>\auto_update.enabled"
   ```
 
 **Running manually:**
@@ -495,6 +496,7 @@ zello-watchdog/
 |---|---|
 | `zello_watchdog.log` | Rotating log file (5 MB × 3 backups) |
 | `watchdog_state.json` | Persistent state (reboot timestamps, flags) |
+| `updater.log` | Auto-update trail (check this first if updates do not happen) |
 | `_backup/` | Backup of previous installation (created by updater before each update) |
 | `_update_staging/` | Temporary staging directory (cleaned up after successful update) |
 
