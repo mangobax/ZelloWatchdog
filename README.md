@@ -11,9 +11,9 @@ Designed for headless/unattended Windows stations running Zello as critical infr
 | Feature | Description |
 |---|---|
 | **Health monitoring** | Checks every 5 s that the Zello process is running and its WAL database file exists |
-| **Auto-relaunch** | Kills and relaunches Zello via Windows Task Scheduler with verification |
+| **Auto-relaunch** | Kills and relaunches Zello via Windows Task Scheduler with verification. A Zello started less than `startup_grace_seconds` (90) ago is left alone while it signs in |
 | **Exponential backoff** | Relaunch delays increase (15 s → 30 s → 60 s) to avoid hammering a broken system |
-| **System reboot** | If Zello stays down past a timeout, the machine is rebooted automatically |
+| **System reboot** | If Zello stays down past `timeout_seconds` (180) and Windows itself has been up at least that long, the machine is rebooted automatically |
 | **Reboot loop protection** | Limits reboots to N per time window (persisted to disk) to prevent infinite reboot cycles. While reboots are blocked and Zello is still down, a Telegram reminder is repeated every `blocked_reminder_minutes` (default 30) saying manual intervention is needed and the PC is still on and reachable |
 | **Telegram notifications** | Real-time alerts for errors, recoveries, relaunches, reboots, and heartbeats |
 | **Telegram command interface** | `/status`, `/restart`, `/pause`, `/resume`, `/report`, `/help` |

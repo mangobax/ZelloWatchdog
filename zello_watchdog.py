@@ -144,7 +144,8 @@ def load_config(config_path: Path | None = None) -> dict:
     cfg = {
         # [watchdog]
         "check_interval":         cp.getint("watchdog", "check_interval", fallback=5),
-        "timeout_seconds":        cp.getint("watchdog", "timeout_seconds", fallback=60),
+        "timeout_seconds":        cp.getint("watchdog", "timeout_seconds", fallback=180),
+        "startup_grace_seconds":  cp.getint("watchdog", "startup_grace_seconds", fallback=90),
         "relaunch_after":         cp.getint("watchdog", "relaunch_after", fallback=15),
         "max_relaunch_attempts":  cp.getint("watchdog", "max_relaunch_attempts", fallback=3),
         "relaunch_verify_delay":  cp.getint("watchdog", "relaunch_verify_delay", fallback=5),
@@ -688,6 +689,21 @@ class ZelloWatchdog:
                 continue
         return False
 
+    def _zello_process_age(self) -> float | None:
+        """Seconds since the youngest Zello process started, or None if none is running."""
+        names = self.cfg["process_names"]
+        youngest: float | None = None
+        for proc in psutil.process_iter(["name", "create_time"]):
+            try:
+                pname = proc.info["name"]
+                if pname and pname.lower() in names:
+                    age = time.time() - proc.info["create_time"]
+                    if youngest is None or age < youngest:
+                        youngest = age
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return youngest
+
     def _kill_processes(self) -> bool:
         names = self.cfg["process_names"]
         killed = False
@@ -783,6 +799,15 @@ class ZelloWatchdog:
         verify_delay = self.cfg["relaunch_verify_delay"]
 
         if self._relaunch_attempts >= max_att:
+            return False
+
+        # A Zello that is still starting up (signing in) must not be killed: that restarts
+        # its sign-in and the file check keeps failing.
+        age = self._zello_process_age()
+        grace = self.cfg["startup_grace_seconds"]
+        if age is not None and age < grace:
+            self.log.info("[%s] Zello started %d s ago (grace %d s) - not relaunching yet",
+                          site, int(age), grace)
             return False
 
         self._relaunch_attempts += 1
@@ -1042,7 +1067,13 @@ class ZelloWatchdog:
                         self._try_relaunch()
 
                     # Hard reboot (with loop protection)
-                    if elapsed >= self.cfg["timeout_seconds"]:
+                    # Also require the PC itself to have been up that long, so a slow
+                    # Windows boot cannot count towards the reboot timeout.
+                    boot_age = time.time() - psutil.boot_time()
+                    if (
+                        elapsed >= self.cfg["timeout_seconds"]
+                        and boot_age >= self.cfg["timeout_seconds"]
+                    ):
                         if self._is_reboot_allowed():
                             self.send_telegram(
                                 f"\U0001f534 [{site}] Zello persistent error — rebooting system",
